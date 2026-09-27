@@ -11,13 +11,7 @@ from analyzer import analyze_audio
 
 app = FastAPI(title="ChordGrid API", version="0.1.0")
 
-allowed_origins = [
-    origin.strip()
-    for origin in os.getenv(
-        "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
-    ).split(",")
-    if origin.strip()
-]
+allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
