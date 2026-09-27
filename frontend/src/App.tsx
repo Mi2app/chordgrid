@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import WaveSurfer from 'wavesurfer.js'
 import type { Analysis, ChordEvent } from './types'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_URL = import.meta.env.VITE_API_URL || 'https://chordgrid-backend.onrender.com'
 const COMMON_CHORDS = ['C','Cm','C7','Cmaj7','Cm7','D','Dm','D7','Dmaj7','Dm7','E','Em','E7','Emaj7','Em7','F','Fm','F7','Fmaj7','Fm7','F#','F#m','F#7','F#maj7','F#m7','G','Gm','G7','Gmaj7','Gm7','Ab','Abm','Ab7','Abmaj7','A','Am','A7','Amaj7','Am7','Bb','Bbm','Bb7','Bbmaj7','B','Bm','B7','Bmaj7','Bm7']
 
 function formatTime(sec: number) {
@@ -22,6 +22,8 @@ export default function App() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [loading, setLoading] = useState(false)
+  const [stage, setStage] = useState('')
+  const [mode, setMode] = useState<'simple' | 'standard' | 'jazz'>('standard')
   const [error, setError] = useState('')
   const [currentTime, setCurrentTime] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -80,17 +82,27 @@ export default function App() {
     if (!file) return
     setLoading(true)
     setError('')
+    setStage('Réveil du moteur…')
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 240000)
     try {
+      await fetch(`${API_URL}/health`, { signal: controller.signal })
+      setStage('Upload et analyse harmonique…')
       const fd = new FormData()
       fd.append('file', file)
-      const res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: fd })
+      fd.append('mode', mode)
+      const res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: fd, signal: controller.signal })
       const body = await res.json()
       if (!res.ok) throw new Error(body.detail || 'Analyse impossible')
       setAnalysis(body)
+      setStage('')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erreur inconnue')
+      if (e instanceof DOMException && e.name === 'AbortError') setError('Analyse trop longue (> 4 min). Essaie un extrait plus court ou le mode Simple.')
+      else setError(e instanceof Error ? e.message : 'Erreur inconnue')
     } finally {
+      window.clearTimeout(timeout)
       setLoading(false)
+      setStage('')
     }
   }
 
@@ -138,7 +150,7 @@ export default function App() {
           <h1>ChordGrid</h1>
           <p>Transforme un morceau en grille d'accords synchronisée, éditable et exportable.</p>
         </div>
-        <div className="version">DSP v0.1</div>
+        <div className="version">DSP v0.2</div>
       </header>
 
       <main>
@@ -149,9 +161,19 @@ export default function App() {
             <strong>{file ? file.name : 'Choisir un morceau'}</strong>
             <small>MP3, WAV, M4A, AAC, FLAC ou OGG • 40 Mo max</small>
           </label>
-          <button className="primary" disabled={!file || loading} onClick={analyze}>
-            {loading ? 'Analyse harmonique…' : 'Analyser le morceau'}
-          </button>
+          <div className="analysis-controls">
+            <label className="mode-select">
+              <span>Mode</span>
+              <select value={mode} onChange={e => setMode(e.target.value as 'simple' | 'standard' | 'jazz')} disabled={loading}>
+                <option value="simple">Simple pop</option>
+                <option value="standard">Standard</option>
+                <option value="jazz">Jazz / Gospel</option>
+              </select>
+            </label>
+            <button className="primary" disabled={!file || loading} onClick={analyze}>
+              {loading ? (stage || 'Analyse harmonique…') : 'Analyser le morceau'}
+            </button>
+          </div>
           {error && <div className="error">{error}</div>}
         </section>
 
@@ -175,7 +197,7 @@ export default function App() {
               <div className="stat"><span>Tempo</span><strong>{analysis.tempo}</strong><small>BPM</small></div>
               <div className="stat"><span>Tonalité</span><strong>{analysis.key.replace(' major','').replace(' minor','m')}</strong><small>{Math.round(analysis.keyConfidence * 100)}% confiance</small></div>
               <div className="stat"><span>Mesure</span><strong>{analysis.timeSignature}</strong><small>V1 supposée</small></div>
-              <div className="stat"><span>Durée</span><strong>{formatTime(analysis.duration)}</strong><small>{analysis.filename}</small></div>
+              <div className="stat"><span>Durée</span><strong>{formatTime(analysis.duration)}</strong><small>{analysis.processingSeconds ? `analyse ${analysis.processingSeconds}s • ` : ''}{analysis.filename}</small></div>
             </section>
 
             <section className="panel grid-panel">

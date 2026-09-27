@@ -22,5 +22,7 @@ export type Analysis = {
   chords: ChordEvent[]
   sections: unknown[]
   engine: string
+  mode?: string
+  processingSeconds?: number
   warning: string
 }
