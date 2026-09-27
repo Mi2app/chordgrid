@@ -150,7 +150,7 @@ export default function App() {
           <h1>ChordGrid</h1>
           <p>Transforme un morceau en grille d'accords synchronisée, éditable et exportable.</p>
         </div>
-        <div className="version">DSP v0.2</div>
+        <div className="version">DSP v0.3</div>
       </header>
 
       <main>

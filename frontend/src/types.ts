@@ -7,6 +7,9 @@ export type ChordEvent = {
   beat: number
   measure: number
   chord: string
+  baseChord?: string
+  bass?: string | null
+  bassConfidence?: number
   confidence: number
   alternatives: Alternative[]
 }
