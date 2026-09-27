@@ -13,7 +13,7 @@ from analyzer import analyze_audio
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("chordgrid.api")
 
-app = FastAPI(title="ChordGrid API", version="0.2.0")
+app = FastAPI(title="ChordGrid API", version="0.3.0")
 
 # V0.2 prototype: allow the Render static frontend and local development.
 # Tighten this to the exact frontend URL once the product is stabilized.
@@ -31,12 +31,12 @@ MAX_MB = int(os.getenv("MAX_UPLOAD_MB", "40"))
 
 @app.get("/")
 def root() -> dict:
-    return {"name": "ChordGrid API", "version": "0.2.0", "status": "ok"}
+    return {"name": "ChordGrid API", "version": "0.3.0", "status": "ok"}
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": "0.2.0"}
+    return {"status": "ok", "version": "0.3.0"}
 
 
 @app.post("/analyze")

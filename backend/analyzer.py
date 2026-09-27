@@ -96,13 +96,36 @@ def _score_segment(chroma: np.ndarray, bass: np.ndarray, templates, diatonic_roo
     scored: list[tuple[float, str, int]] = []
     for name, root, template, complexity in templates:
         score = float(np.dot(x, template)) - complexity
+        # v0.3: the bass is only a weak prior. A stronger bonus here tends to
+        # collapse real slash chords (G/C -> C...) into a root-position chord.
         if root == bass_pc:
-            score += 0.055
+            score += 0.018
         if root in diatonic_roots:
             score += 0.018
         scored.append((score, name, root))
     scored.sort(reverse=True)
     return scored
+
+
+def _bass_note(bass_segment: np.ndarray, mode: str) -> tuple[int, float]:
+    """Return the most likely bass pitch class and a conservative confidence.
+
+    The folded low-CQT contains harmonics as well as the fundamental, so we
+    require both absolute dominance and separation from the runner-up before
+    emitting a slash chord.
+    """
+    b = np.maximum(bass_segment.astype(float), 0.0)
+    total = float(np.sum(b))
+    if total < 1e-8:
+        return -1, 0.0
+    order = np.argsort(b)[::-1]
+    first = int(order[0])
+    second = int(order[1]) if len(order) > 1 else first
+    share = float(b[first] / (total + 1e-9))
+    margin = float((b[first] - b[second]) / (float(np.max(b)) + 1e-9))
+    confidence = max(0.0, min(1.0, 0.55 * min(1.0, share / 0.28) + 0.45 * max(0.0, margin)))
+    threshold = {"simple": 0.64, "standard": 0.58, "jazz": 0.52}.get(mode, 0.58)
+    return (first, confidence) if confidence >= threshold else (-1, confidence)
 
 
 def _viterbi(score_rows: list[list[tuple[float, str, int]]]) -> list[int]:
@@ -202,11 +225,21 @@ def analyze_audio(path: str, filename: str = "audio", mode: str = "standard") ->
     for i, ((start_frame, end_frame), row, state) in enumerate(zip(frame_ranges, score_rows, path)):
         chosen_name = all_names[state]
         row_by_name = {name: score for score, name, _ in row}
+        root_by_name = {name: root for _, name, root in row}
+        chosen_root = root_by_name[chosen_name]
         best = row_by_name[chosen_name]
         ordered = sorted(row_by_name.items(), key=lambda x: x[1], reverse=True)
         second = ordered[1][1] if len(ordered) > 1 else best - 0.1
         margin = max(0.0, best - second)
         confidence = max(0.35, min(0.98, 0.48 + margin * 3.4 + (best - 0.72) * 0.7))
+
+        bass_segment = np.median(bass[:, start_frame:end_frame], axis=1)
+        bass_pc, bass_confidence = _bass_note(bass_segment, mode)
+        display_name = chosen_name
+        # Standard slash notation: chord/bass, e.g. G/C = G chord over C bass.
+        if bass_pc >= 0 and bass_pc != chosen_root:
+            display_name = f"{chosen_name}/{NOTE_NAMES[bass_pc]}"
+
         alternatives = [{"chord": n, "score": round(max(0.0, min(1.0, s)), 3)} for n, s in ordered[:3]]
         start = float(librosa.frames_to_time(start_frame, sr=sr, hop_length=hop_length))
         end = float(librosa.frames_to_time(end_frame, sr=sr, hop_length=hop_length))
@@ -216,7 +249,10 @@ def analyze_audio(path: str, filename: str = "audio", mode: str = "standard") ->
             "end": round(min(end, duration), 3),
             "beat": (i % 4) + 1,
             "measure": (i // 4) + 1,
-            "chord": chosen_name,
+            "chord": display_name,
+            "baseChord": chosen_name,
+            "bass": NOTE_NAMES[bass_pc] if bass_pc >= 0 else None,
+            "bassConfidence": round(bass_confidence, 3),
             "confidence": round(confidence, 3),
             "alternatives": alternatives,
         })
@@ -234,8 +270,8 @@ def analyze_audio(path: str, filename: str = "audio", mode: str = "standard") ->
         "beatsPerBar": 4,
         "chords": events,
         "sections": [],
-        "engine": "ChordGrid DSP v0.2",
+        "engine": "ChordGrid DSP v0.3",
         "mode": mode,
         "processingSeconds": round(elapsed, 2),
-        "warning": "V0.2 : mesure 4/4 supposée. Le mode Simple privilégie la stabilité; Jazz autorise davantage d'accords enrichis.",
+        "warning": "V0.3 : mesure 4/4 supposée. Les slash chords sont estimés à partir d’une analyse séparée du registre grave.",
     }
